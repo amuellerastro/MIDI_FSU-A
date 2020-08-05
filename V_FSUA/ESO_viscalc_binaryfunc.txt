@@ -1,0 +1,36 @@
+double uCoord = aU/lambda;
+double vCoord = aV/lambda;
+double rho = sqrt(uCoord*uCoord + vCoord*vCoord);// uv plane radius
+
+double visSquared = 0.0;
+double bessel1 = 0.0;
+double bessel2 = 0.0;
+double denominator = 0.0;
+double d1 = _pHtmlInputPage->_binDiscDiam1/_mas2rad;// convert from mas to radians
+double d2 = _pHtmlInputPage->_binDiscDiam2/_mas2rad;// convert from mas to radians
+double binarySeperation = _pHtmlInputPage->_binDiscSep/_mas2rad;// convert from mas to radians
+double binaryAngleTheta_Radians = ( _pHtmlInputPage->_binDiscAngle - 90.0 )/_deg2rad;
+double binaryBrightnessRatio = _pHtmlInputPage->_binDiscBrightRatio;
+
+
+// Diameter to radius conversion
+double r1=d1/2;
+double r2=d2/2;
+
+bessel1 = CInterferCalcEngine::besselJ( 2*pi*rho*r1 );
+bessel2 = CInterferCalcEngine::besselJ( 2*pi*rho*r2 );
+
+denominator = ( pi*pi*
+(binaryBrightnessRatio*binaryBrightnessRatio*r1*r1*r1*r1*uCoord*uCoord
++ binaryBrightnessRatio*binaryBrightnessRatio*r1*r1*r1*r1*vCoord*vCoord
++ 2*binaryBrightnessRatio*r1*r1*r2*r2*uCoord*uCoord
++ 2*binaryBrightnessRatio*r1*r1*r2*r2*vCoord*vCoord
++ r2*r2*r2*r2*uCoord*uCoord
++ r2*r2*r2*r2*vCoord*vCoord ));
+
+visSquared = ( 2*r2*bessel2*binaryBrightnessRatio*r1*bessel1*cos(2*pi*binarySeperation*(cos(binaryAngleTheta_Radians)*uCoord + sin(binaryAngleTheta_Radians)*vCoord))
++ binaryBrightnessRatio*binaryBrightnessRatio*r1*r1*bessel1*bessel1
++ r2*r2*bessel2*bessel2)
+/ denominator;
+vis = sqrt(visSquared);
+

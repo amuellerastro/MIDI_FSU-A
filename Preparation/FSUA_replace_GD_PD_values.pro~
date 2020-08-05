@@ -1,0 +1,439 @@
+@counter.pro
+@fifteenb.pro
+@crsmax_MOD.pro
+@mrdfits.pro
+@fxposit.pro
+@fxmove.pro
+@mrd_hread.pro
+@fxpar.pro
+@valid_num.pro
+@mrd_skip.pro
+@match.pro
+@mrd_struct.pro
+@mean.pro
+@moment.pro
+@linspace.pro
+@linfit.pro
+@mwrfits.pro
+@fxaddpar.pro
+@fxparpos.pro
+@detabify.pro
+@rgb.pro
+@readcol.pro
+@remchar.pro
+@gettok.pro
+@strsplit.pro
+@strnumber.pro
+@sxaddhist.pro
+@sxpar.pro
+
+;======= FSU A ==========
+
+;post-process FSU data
+
+pro FSUA_replace_GD_PD_values
+
+;VAARIABLES
+;**********************************************************************************************
+obsnum = ''
+read, 'Enter Observing Run: ', obsnum
+
+readcol, '/home/amueller/work/MIDI_FSUA/observation_FSUA.txt', comm, id, kmag, fsu, bg, ff1, ff2, labcal, format='a,a,d,a,a,a,a,a', skipline=1, /silent
+
+idx = where(comm eq obsnum)
+if (idx[0] ne -1) then begin
+
+  comm = comm[idx]
+  id = id[idx]
+  kmag = kmag[idx]
+  fsu = fsu[idx]
+  bg = bg[idx]
+  ff1 = ff1[idx]
+  ff2 = ff2[idx]
+  labcal = labcal[idx]
+
+endif else begin
+
+  print, ''
+  print, 'Commissioning number does not match with current data set in observation_FSUA.txt.'
+  print, ''
+  return
+
+endelse
+
+calquest = ''
+read, 'Skycal [1] or Labcal [2]: ', calquest
+
+
+;paths
+  ;pathdata = '/media/disk_MIDIFSU/MIDI_FSUA/MIDI_FSUA_'+obsnum+'/FSUAdata/'
+  pathdata = '/home/amueller/Downloads/MIDI_FSUA_'+obsnum+'/FSUAdata/'
+  pathskycal = pathdata+'SkyCalibration/'
+
+  ;if we use fringe scans for calibtrating the FSU use FringeScan directory
+  if (calquest eq '2') then pathlabcal = pathdata+'LabCalibration/'
+  if (calquest eq '1') then pathlabcal = pathdata+'FringeScan/'
+
+  copypath = pathdata+'originalFSUAFT/'
+  file_mkdir, copypath
+;   prefixdark = 'PACMAN_SKY_BACKGROUND_'
+;   prefixflat = 'PACMAN_SKY_FLAT_'
+  prefixdark = 'FSUA_SKY_DARK_'
+  prefixflat = 'FSUA_SKY_FLAT_'
+;**********************************************************************************************
+
+
+for xx=0,n_elements(fsu)-1 do begin
+;for xx=19,n_elements(fsu)-1 do begin
+
+  counter, xx+1, n_elements(fsu), 'Processing observation '
+;   print, 'Record '+strcompress(xx+1, /rem)+' / '+strcompress(n_elements(fsu), /rem)
+
+  ;copy original FSU fringe track files
+  ;print, 'backup original FSUA FT data '+strcompress(xx+1,/rem)+' / '+strcompress(n_elements(fsu),/rem)
+  spawn, 'mv '+pathdata+fsu[xx]+' '+copypath
+
+  obsfile = copypath+fsu[xx]
+  darkfile = pathskycal+prefixdark+bg[xx]+'.fits'
+  flatfile1 = pathskycal+prefixflat+ff1[xx]+'.fits'
+  flatfile2 = pathskycal+prefixflat+ff2[xx]+'.fits'
+  if (calquest eq '2') then caldir = pathlabcal+'LabCal_'+labcal[xx]+'/'
+  if (calquest eq '1') then caldir = pathlabcal
+
+  ; for each pixel:
+  ;    1.-take the mean of the dark values this gives you the dark.
+  ;    2.-take mean of flat beam1 and mean of flat beam2 and add those two quantities -> that gives the flat value 
+
+  dark = dblarr(6,4)	;4 quadrants containing 6 pixels where 1st pixel is white light pixel
+  flat = dblarr(6,4)	;final flat
+  flat1 = dblarr(6,4)	;flat beam1
+  flat2 = dblarr(6,4)	;flat beam2
+
+;read in data array as structure for dark and flats
+  st_d1 = mrdfits(darkfile,'IMAGING_DATA_FSUA', /silent)
+  st_f1 = mrdfits(flatfile1,'IMAGING_DATA_FSUA', /silent)
+  st_f2 = mrdfits(flatfile2,'IMAGING_DATA_FSUA', /silent)
+
+  idxd1 = where(st_d1.time ne 0.d0)
+  idxf1 = where(st_f1.time ne 0.d0)
+  idxf2 = where(st_f2.time ne 0.d0)
+
+;compute dark and flat
+  for i=0,3 do begin	;loop over quadrants
+
+    for j=0,5 do begin	;loop over channels
+
+      if (i eq 0) then begin
+	dark[j,i] = median(st_d1[idxd1].data1[j])
+	flat1[j,i] = median(st_f1[idxf1].data1[j])
+	flat2[j,i] = median(st_f2[idxf2].data1[j])
+      endif
+
+      if (i eq 1) then begin 
+	dark[j,i] = median(st_d1[idxd1].data2[j])
+	flat1[j,i] = median(st_f1[idxf1].data2[j])
+	flat2[j,i] = median(st_f2[idxf2].data2[j])
+      endif
+
+      if (i eq 2) then begin 
+	dark[j,i] = median(st_d1[idxd1].data3[j])
+	flat1[j,i] = median(st_f1[idxf1].data3[j])
+	flat2[j,i] = median(st_f2[idxf2].data3[j])
+      endif
+
+      if (i eq 3) then begin
+	dark[j,i] = median(st_d1[idxd1].data4[j])
+	flat1[j,i] = median(st_f1[idxf1].data4[j])
+	flat2[j,i] = median(st_f2[idxf2].data4[j])
+      endif
+
+    endfor
+  endfor
+
+  flat = flat1 + flat2	;combine flats of beam 1 and 2 to final flat
+
+;read in of LabCal data
+  if (calquest eq '2') then begin
+
+    lc_file1 = 'FSUA_Calibration_ABCD.dat'
+    lc_file2 = 'FSUA_Calibration_Waves.dat'
+    lc_file3 = 'FSUA_Calibration_Lambda.dat'
+    lc_file4 = 'FSUA_Calibration_Angles.dat'
+
+  endif
+
+  if (calquest eq '1') then begin
+
+    lc_file1 = 'FSUA_SkyCalibration_ABCD.dat'
+;     lc_file2 = 'FSUA_SkyCalibration_Waves.dat'
+    lc_file3 = 'FSUA_SkyCalibration_Lambda.dat'
+;     lc_file4 = 'FSUA_SkyCalibration_Angles.dat'
+
+  endif
+
+
+  wave = dblarr(6,4)
+  readcol, caldir+lc_file3, wltmp, format='d', /silent
+  wave[0,0] = wltmp[0]
+  wave[0,1] = wltmp[1]
+  wave[0,2] = wltmp[2]
+  wave[0,3] = wltmp[3]
+  wave[1,0] = wltmp[4]
+  wave[1,1] = wltmp[5]
+  wave[1,2] = wltmp[6]
+  wave[1,3] = wltmp[7]
+  wave[2,0] = wltmp[8]
+  wave[2,1] = wltmp[9]
+  wave[2,2] = wltmp[10]
+  wave[2,3] = wltmp[11]
+  wave[3,0] = wltmp[12]
+  wave[3,1] = wltmp[13]
+  wave[3,2] = wltmp[14]
+  wave[3,3] = wltmp[15]
+  wave[4,0] = wltmp[16]
+  wave[4,1] = wltmp[17]
+  wave[4,2] = wltmp[18]
+  wave[4,3] = wltmp[19]
+  wave[5,0] = wltmp[20]
+  wave[5,1] = wltmp[21]
+  wave[5,2] = wltmp[22]
+  wave[5,3] = wltmp[23]
+
+  phasecorr = dblarr(6,4)
+  readcol, caldir+lc_file1, phtmp, format='d', /silent
+  phasecorr[0,0] = phtmp[0]
+  phasecorr[0,1] = phtmp[1]
+  phasecorr[0,2] = phtmp[2]
+  phasecorr[0,3] = phtmp[3]
+  phasecorr[1,0] = phtmp[4]
+  phasecorr[1,1] = phtmp[5]
+  phasecorr[1,2] = phtmp[6]
+  phasecorr[1,3] = phtmp[7]
+  phasecorr[2,0] = phtmp[8]
+  phasecorr[2,1] = phtmp[9]
+  phasecorr[2,2] = phtmp[10]
+  phasecorr[2,3] = phtmp[11]
+  phasecorr[3,0] = phtmp[12]
+  phasecorr[3,1] = phtmp[13]
+  phasecorr[3,2] = phtmp[14]
+  phasecorr[3,3] = phtmp[15]
+  phasecorr[4,0] = phtmp[16]
+  phasecorr[4,1] = phtmp[17]
+  phasecorr[4,2] = phtmp[18]
+  phasecorr[4,3] = phtmp[19]
+  phasecorr[5,0] = phtmp[20]
+  phasecorr[5,1] = phtmp[21]
+  phasecorr[5,2] = phtmp[22]
+  phasecorr[5,3] = phtmp[23]
+
+
+
+  alpha = phasecorr[*,0]
+  beta = phasecorr[*,1]
+  gamma = phasecorr[*,2]
+  delta = phasecorr[*,3]
+
+
+;readin raw data, i.e. measured fluxes
+  st = mrdfits(obsfile,'IMAGING_DATA_FSUA', /silent)
+
+  rawA = dblarr(6,n_elements(st.data1[0,*]))
+  rawB = dblarr(6,n_elements(st.data2[0,*]))
+  rawC = dblarr(6,n_elements(st.data3[0,*]))
+  rawD = dblarr(6,n_elements(st.data4[0,*]))
+
+
+  for i=0,5 do begin
+
+    rawA[i,*] = st.data1[i,*]
+    rawB[i,*] = st.data2[i,*]
+    rawC[i,*] = st.data3[i,*]
+    rawD[i,*] = st.data4[i,*]
+
+  endfor
+
+;NORMALIZER BLOCK
+  A = dblarr(6,n_elements(st.data1[0,*])) & B = A & C = A & D = A
+  PD = A
+  for i=0,5 do begin
+
+;     if (fcheck eq 1) then begin
+; 
+;       A[*,i] = (rawA[*,i] - dark[i,0]) / (flat[i,0] - dark[i,0])
+;       B[*,i] = (rawB[*,i] - dark[i,1]) / (flat[i,1] - dark[i,1])
+;       C[*,i] = (rawC[*,i] - dark[i,2]) / (flat[i,2] - dark[i,2])
+;       D[*,i] = (rawD[*,i] - dark[i,3]) / (flat[i,3] - dark[i,3])
+; 
+;     endif
+; 
+;     if (fcheck eq 2) then begin
+
+      A[i,*] = (rawA[i,*] - dark[i,0]) / (flat[i,0] - 2.d0*dark[i,0])
+      B[i,*] = (rawB[i,*] - dark[i,1]) / (flat[i,1] - 2.d0*dark[i,1])
+      C[i,*] = (rawC[i,*] - dark[i,2]) / (flat[i,2] - 2.d0*dark[i,2])
+      D[i,*] = (rawD[i,*] - dark[i,3]) / (flat[i,3] - 2.d0*dark[i,3])
+
+;     endif
+
+  endfor
+
+
+
+;PHASE BLOCK
+  X = dblarr(6,n_elements(st.data1[0,*])) & Y = X
+  for i=0,5 do begin
+
+;     X[*,i] = (-delta[i]*(A[*,i]-C[*,i])) + (beta[i]*(B[*,i]-D[*,i]))
+;     Y[*,i] = (gamma[i]*(A[*,i]-C[*,i])) + (alpha[i]*(B[*,i]-D[*,i]))
+    csc = 1.d0/((beta[i]*gamma[i]) - (alpha[i]*delta[i]))
+    X[i,*] = ((gamma[i]*(A[i,*]-C[i,*])) - (alpha[i]*(B[i,*]-D[i,*])))*csc
+    Y[i,*] = ((beta[i]*(B[i,*]-D[i,*])) - (delta[i]*(A[i,*]-C[i,*])))*csc
+
+    PD[i,*] = -1.d0*atan(X[i,*], Y[i,*])
+
+
+  endfor
+
+;GROUP DELAY BLOCK
+  ic = complex(0.,1.,/double)
+  ksize = 65.d0	;size of OPD vector
+  krange = 12.d-6	;half-range of OPD vector [m]
+  k = linspace(-krange,krange,ksize)
+
+  effwave = dblarr(6)
+  for i=0,5 do begin
+
+    effwave[i] = median(wave[i,*])
+
+  endfor
+
+  wavenumber = 1.d0/effwave
+
+  ftfunct = dcomplexarr(ksize,n_elements(st.data1[0,*]))
+  maxpos = 0.d0
+
+  ;phasors
+  phasor = dcomplexarr(6,n_elements(st.data1[0,*]))
+  for i=0,5 do begin
+
+    phasor[i,*] = complex(X[i,*],Y[i,*])
+
+  endfor
+
+
+  for i=0,ksize-1 do begin
+    ;NO white light pixel
+    ftfunct[i,*] = phasor[1,*]*exp(-2.d0*!DPI*ic*k[i]*wavenumber[1])+$
+		phasor[2,*]*exp(-2.d0*!DPI*ic*k[i]*wavenumber[2])+$
+		phasor[3,*]*exp(-2.d0*!DPI*ic*k[i]*wavenumber[3])+$
+		phasor[4,*]*exp(-2.d0*!DPI*ic*k[i]*wavenumber[4])+$
+		phasor[5,*]*exp(-2.d0*!DPI*ic*k[i]*wavenumber[5])
+
+  endfor
+
+  maxpos = dblarr(n_elements(st.data1[0,*])) & maxft = maxpos
+  k1 = maxft & k2 = maxft & k3 = maxft
+  y1 = maxft & y2 = maxft & y3 = maxft
+  GD = maxft
+
+  for i=0L,n_elements(st.data1[0,*])-1 do begin
+
+    ;1st method to determine GD
+     crsmax_MOD,abs(ftfunct[*,i]),k,0,delv,sigy,si
+     GD[i]= delv
+
+;     ;original method to determine GD
+;     maxft[i] = max(abs(ftfunct[*,i]),dum)
+;     maxpos[i] = dum
+; ;    gd(i) = k(maxpos(i))
+;     if (maxpos[i] ne 0. and maxpos[i] ne 59.) then begin
+; 
+;       k1[i] = (k[maxpos(i)-1]+k[maxpos(i)])/2.d0
+;       k2[i] = k[maxpos(i)]
+;       k3[i] = (k[maxpos(i)]+k[maxpos(i)+1])/2.d0
+; 
+;       ;NOT CORRECT WORKING
+;       y1[i] = abs(ftfunct[k1(i),*])
+;       y2[i] = abs(ftfunct[maxpos(i),*])
+;       y3[i] = abs(ftfunct[k3(i),*])
+; 
+;       del = k2[i] - k1[i]
+;       amp = -(2.d0*y2[i] - y1[i] - y3[i])/(2.d0*del^2.)
+;       GD[i] = 0.5*(k2[i]+k1[i]-((y2[i]-y1[i])/(amp*del)))
+; 
+; ;       gdinterpol = linspace(k1(i),k3(i),20)
+; ;       dum1 = [y1(i),y2(i),y3(i)]
+; ;       dum2 = [k1(i),k2(i),k3(i)]
+; ;       res = interpol(dum1,dum2,gdinterpol,/quadratic)
+; ;       dum = max(res,idx)
+; ;       GD[i] = gdinterpol[idx]
+; 
+;     endif else begin
+;       GD[i] = k2[i]
+; 
+;    endelse
+
+  endfor
+
+
+;write modified FSUA file
+
+  GD = GD
+  PD = PD[0,*]
+
+  for j=0,11 do begin
+
+    struc = mrdfits(obsfile, j, hdr, status=status, /silent)
+
+    if (strmatch(obsfile,'*/FSUA_OBS*') eq '1') then begin
+
+      if (j ne 6) then begin
+	mwrfits, struc, pathdata+fsu[xx], hdr, /silent
+      endif else begin
+
+	struc.gd = GD
+	struc.pd = transpose(PD)
+	mwrfits, struc, pathdata+fsu[xx], hdr, /silent
+
+      endelse
+
+    endif
+
+    if (strmatch(obsfile,'*/PACMAN_GEN*') eq '1') then begin
+
+      if (j ne 7) then begin
+	mwrfits, struc, pathdata+fsu[xx], hdr, /silent
+      endif else begin
+
+	struc.gd = GD
+	struc.pd = transpose(PD)
+	mwrfits, struc, pathdata+fsu[xx], hdr, /silent
+
+      endelse
+
+    endif
+
+  endfor
+
+
+  ;plot original and re computed DG and PD
+
+  st1 = mrdfits(obsfile, 'IMAGING_DATA_FSUA', /silent)	;original file
+  st2 = mrdfits(pathdata+fsu[xx],'IMAGING_DATA_FSUA', /silent)
+;   st1 = mrdfits(obsfile, 6, /silent)	;original file
+;   st2 = mrdfits(pathdata+fsu[xx],6, /silent)
+  window, 0, xs=1500, ys=800
+    !p.multi=[0,1,2]
+
+    plot, st1.gd, xst=1, yst=1, yr=[-12d-6,12d-6]
+    oplot, st2.gd, color=rgb(255,0,0)
+
+    plot, st1.pd, xst=1, yst=1
+    oplot, st2.pd, color=rgb(255,0,0)
+
+  !p.multi=[0,1,0]
+
+endfor
+stop
+
+end

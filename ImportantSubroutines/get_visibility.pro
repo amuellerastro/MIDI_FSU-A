@@ -1,0 +1,35 @@
+;Point source
+
+function get_visibility, bl, wl, diam, diamerr
+
+conv = 180.d0*3600.d0/!DPI
+
+sf = bl/wl/conv	;spatial frequency
+
+vis = dblarr(n_elements(wl))
+
+for i=0,n_elements(wl)-1 do $
+  vis[i] = abs(2.d0*BESELJ(!DPI*sf[i]*diam, 1, /DOUBLE)/(!DPI*sf[i]*diam))
+
+;vis2 = vis*vis	;V^2
+
+return, vis
+
+end
+
+
+;binary with point source stars
+
+function get_visibility_binary, f, u, v, wl, a1, d1, a2, d2
+
+  B = [u,v]
+  rho = [[a1-a2],[d1-d2]]*!dtor
+
+;   vis2 = dblarr(n_elements(wl))
+
+ for i=0,n_elements(wl)-1 do $
+   vis = sqrt(1.d0+f^2.+(2.d0*f*cos((2.d0*!DPI/wl[i])*B##rho)))/(1.d0+f)
+
+return, vis
+
+end

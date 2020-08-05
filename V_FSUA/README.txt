@@ -1,0 +1,128 @@
+20130701: calibrator stars with different diameters
+20130706: binary HD155826, works well
+20131025: binary 42Cet, observed A component instead of BC, no change in Visibility
+20131028: binary 24Psc
+
+===========================================================================================================
+===========================================================================================================
+
+FSUA_CoherenceFactor_Xpixel
+  considering 3 or 5 dispersed pixel of FSUA
+  In the test versions I am using the 95% sig level from WPSD to define what to integrate but not very stable
+
+FSUA_CalibrateVisibility_Xpixel_degY
+  considering 3 or 5 dispersed pixel of FSUA
+  fit TF by a polynomial function of degree 2 or 3
+
+
+FSUA_FitVisibilityBinary
+
+===========================================================================================================
+===========================================================================================================
+
+
+The only difference between the 2 versions is the extraction of the real time photometry:
+v1 filters the fringe signal in fourier space .... result very unstable
+v2 removes fringes by summing up A+C and B+D
+
+===========================================================================================================
+
+FSUA_CoherenceFactor.pro
+
+same as 'v2' but using equation of Merand2006, i.e. normalization by mean of photometry
+
+===========================================================================================================
+
+OBSOLETE   Visibility_FSUA.pro
+
+-read in of FSUA_FringeScans.txt
+
+-TBD: definition of wavelength of 5 spectral pixels and white light pixel from calibration, definition of bandwidth
+
+-read in of some header kywords
+
+-load_FSU: read in the raw data from FTK file and subtract dark current (5th column)
+
+-getFSUA_DarkFlat: read in skyBG and FF files, compute skyBG and FF values using median, subtracting dark current
+
+-compute kappa matrix ff1/ff2 for every channel/pixel
+
+-extract the individual scans
+
+-remove scans based on deviation from maxSNR position, current value 3sigma
+
+-reverse scan directions to have incresing OPD and first fringe centering by subtracting snr_pos
+
+-compute 1st wavelet to get fringe position
+  -cut out white light fringe
+  -fit A-C photometry
+  -subtract C from A
+  -get fringe position from wavelet by summing up over wavenumber and OPD
+  -subtract fitted fringe position
+
+-extract photometry by filtering out the fringe signal in fourier space
+  -define wavenumbers where fringe signal in fourier space is expected
+  -normalize A,B,C,D by subtracting skyBG and division of FF
+  -apply kappa matrix
+
+-wiener filtering of photometry
+
+-photometric calibration of fringe scans following Kervella+2004
+
+-wavelet computation to check data quality and maybe reject fringes, comparison w.r.t. theoretical wavelet for V^2=1
+
+-compute A-C and B-D, diffAC, diffBD
+
+-wavelet off diffAC/BD and integration over power
+-TBD: fit and remove noise level
+
+-write histogram and output file
+
+===========================================================================================================
+
+OBSOLETE   Visibility_FSUA_v2.pro
+
+-read in of FSUA_FringeScans.txt
+
+-TBD: definition of wavelength of 5 spectral pixels and white light pixel from calibration, definition of bandwidth
+
+-read in of some header kywords
+
+-load_FSU: read in the raw data from FTK file and subtract dark current (5th column)
+
+-getFSUA_DarkFlat: read in skyBG and FF files, compute skyBG and FF values using median, subtracting dark current
+
+-compute kappa matrix ff1/ff2 for every channel/pixel
+
+-extract the individual scans
+
+-remove scans based on deviation from maxSNR position, current value 3sigma
+
+-reverse scan directions to have incresing OPD and first fringe centering by subtracting snr_pos
+
+-compute 1st wavelet to get fringe position
+  -cut out white light fringe
+  -fit A-C photometry
+  -subtract C from A
+  -get fringe position from wavelet by summing up over wavenumber and OPD
+  -subtract fitted fringe position
+
+-extract photometry by computing (A+C)/4 and (B+D)/4 which removes the fringe
+  -normalize A,B,C,D by subtracting skyBG and division of FF
+  -apply kappa matrix
+
+-wiener filtering of photometry
+
+-photometric calibration of fringe scans following Kervella+2004
+
+-wavelet computation to check data quality and maybe reject fringes, comparison w.r.t. theoretical wavelet for V^2=1
+
+-compute A-C and B-D, diffAC, diffBD
+
+-wavelet off diffAC/BD and integration over power
+-TBD: fit and remove noise level
+
+-write histogram and output file
+
+===========================================================================================================
+

@@ -1,0 +1,119 @@
+@get_baseline.pro
+@mrdfits.pro
+@fxposit.pro
+@fxmove.pro
+@mrd_hread.pro
+@fxpar.pro
+@gettok.pro
+@valid_num.pro
+@mrd_skip.pro
+@match.pro
+@mrd_struct.pro
+@readfits.pro
+@sxpar.pro
+@get_eso_keyword.pro
+@strsplit.pro
+@ten.pro
+@get_visibility.pro
+
+
+pro compute_vsibility_binary
+
+;object
+
+;******************************************************************
+;star = '24Psc'
+;midi = 'MIDI.2011-11-28T01:18:17'
+;midi = 'MIDI.2011-11-28T04:04:28'
+;midi = 'MIDI.2011-11-29T02:31:27'
+;midi = 'MIDI.2011-11-30T01:46:18'
+;midi = 'MIDI.2011-11-30T02:24:10'
+;midi = 'MIDI.2011-11-30T03:04:48'
+
+; ;J2000 coordinates
+; alpha1 = [23.d0, 52.d0, 55.56405d0]	;right ascension / h:m:s
+; delta1 = [-3.d0, 9.d0, 19.74d0]	;declination / deg:m:s
+; pm = [75.15d0, -42.9d0]	;proper motion / mas/yr
+; 
+; vmag1 = 5.93d0
+; vmag2 = 6.06d0
+; ;OR  already magnitude differenace
+; dv = vmag1-vmag2
+; ;dv = -0.13	;primary-secondary
+; 
+; ;from Mason2010, ApJ, 140, 735
+; theta = 241.2d0	;deg
+; rho = 0.043d0	;arcsec
+
+;******************************************************************
+
+star = 'WDSJ05320-0018A'
+;midi = 'MIDI.2011-11-28T06:44:55'
+midi = 'MIDI.2011-11-28T07:16:26'
+
+;J2000 coordinates
+alpha1 = [05.d0, 32.d0, 00.40009d0]	;right ascension / h:m:s
+delta1 = [-00.d0, 17.d0, 56.7424d0]	;declination / deg:m:s
+pm = [0.64d0, -0.69d0]	;proper motion / mas/yr
+
+vmag1 = 2.41d0
+vmag2 = 3.76d0
+;OR  already magnitude differenace
+dv = vmag1-vmag2
+;dv = -0.13	;primary-secondary
+
+;from Maiz Apellaniz, 2010, A&A, 518, A1, High-resolution imaging of Galactic massive stars with AstraLux
+;measurement from 17.01.2008
+theta = 132.66d0	;deg
+rho = 0.325d0	;arcsec
+
+;******************************************************************
+
+;defines files to get LST, telescope coordinates, ...
+comm = 'P88'
+path = '/media/disk_MIDIFSU/MIDI_FSUA/COMM'+comm+'/MIDIdata/'
+; path = '/media/disk_MIDIFSU/MIDI_FSUA/MIDI_FSUA_'+comm+'/MIDIdata/'
+
+;Baseline
+bl_info = get_baseline(path, midi)
+  bl = bl_info.bl	;meter
+  pa = bl_info.padeg	;deg
+  u = bl_info.u
+  v = bl_info.v
+
+
+;flux ratio, f2/f1
+  flr = (10.^(dv/(-2.5d0)))
+
+;convert coordinates into degrees and correct coordinates for PM
+  ;get JD
+  file = file_search(path+midi+'*.fits')
+  dum = readfits(file[0], hdr)
+  jd = 0.5d0+double(get_eso_keyword(hdr, 'MJD-OBS'))+2400000.d0
+  diffjd = (jd - 2451545.0d0)/365.d0
+
+  alpha1 = ten(alpha1)
+  alpha1 = alpha1*360.d0/24.d0	;degr
+  alpha1 = alpha1+(diffjd*pm[0]/3600.d0/1000.d0)
+
+  delta1 = ten(delta1)	;degr
+  delta1 = delta1+(diffjd*pm[1]/3600.d0/1000.d0)
+
+;get alpha2 and delta2 
+  da = (rho/3600.d0)*sin(theta*!dtor)	;deg
+  dd = (rho/3600.d0)*cos(theta*!dtor)	;deg
+
+  alpha2 = alpha1+da
+  delta2 = delta1+dd
+
+;compute Visibility
+  visK = get_visibility_binary(flr, u, v, 2.2d-6, alpha1, delta1, alpha2, delta2)
+  visN = get_visibility_binary(flr, u, v, 10.d-6, alpha1, delta1, alpha2, delta2)
+
+;Output
+  print, ''
+  print, 'V(K): ', visK
+  print, 'V(N): ', visN
+  print, ''
+stop
+end

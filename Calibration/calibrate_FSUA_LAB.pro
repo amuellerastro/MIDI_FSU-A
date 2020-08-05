@@ -1,0 +1,721 @@
+; function peakgaussfit, x, y
+; 
+;   ;threshold
+;   h=0.6d0
+; 
+;   ;cutting
+;   ymax = max(y)
+;   xnew = dblarr(n_elements(x))
+;   ynew = dblarr(n_elements(x))
+; 
+;   for i=0,n_elements(x)-1 do begin
+; 
+;     if(y[i] gt ymax*h) then begin
+; 
+;       xnew[i] = x[i]
+;       ynew[i] = y[i]
+; 
+;     endif
+; 
+;   endfor
+; 
+; ;   idx = where(ynew ne 0.d0)
+; ;   xnew = xnew[idx]
+; ;   ynew = ynew[idx]
+; 
+;   ylog = alog(ynew)
+;   xlog = xnew
+;   p = poly_fit(xlog, ylog, 2, /double)
+;   A2 = p[0]
+;   A1 = p[1]
+;   A0 = p[2]
+;   sigma = sqrt(-1.d0/(2.d0*A2))
+;   mu = A1*sigma^2.d0
+;   A = exp(A0+mu^2.d0/(2.d0*sigma^2.d0))
+; 
+;   gfresult = {sigma:sigma, mu:mu, A:A}
+; stop
+;   return, gfresult
+; 
+; end
+
+
+;Here, A0 is the height of the Gaussian, A1 is the center of the Gaussian, A2 is the width (the standard deviation) of the Gaussian, A3 is the constant term, A4 is the linear term, and A5 is the quadratic term. 
+function fit_gauss_3terms, x, p
+  fit = p[0]*exp(-0.5d0*((x-p[1])/p[2])^2.)
+  return, fit
+end
+function fit_gauss_4terms, x, p
+  fit = p[0]*exp(-0.5d0*((x-p[1])/p[2])^2.)+p[3]
+  return, fit
+end
+function fit_gauss_5terms, x, p
+  fit = p[0]*exp(-0.5d0*((x-p[1])/p[2])^2.)+p[3]+(p[4]*x)
+  return, fit
+end
+function fit_gauss_6terms, x, p
+  fit = p[0]*exp(-0.5d0*((x-p[1])/p[2])^2.)+p[3]+(p[4]*x)+(p[5]*x^2.)
+  return, fit
+end
+
+function normalize, x
+
+  return, (x-min(x))/(max(x)-min(x))
+
+end
+
+function snrfun, x, p
+  fit = p[7]*( exp(-0.5d0*((x-p[0])/p[1])^2.) + p[4]*exp(-0.5d0*((x-p[5])/p[6])^2.)*sin(p[2]*x-p[3]) )+p[8]
+  return, fit
+end
+
+function closest,vector,find,SORT=s
+
+  nf=n_elements(find)
+  sort=keyword_set(s) || arg_present(s)
+  if sort && n_elements(s) ne n_elements(vector) then s=sort(vector)
+  j=value_locate(sort?vector[s]:vector,find)
+  b=[[j>0],[(j+1)<(n_elements(vector)-1)]]
+  mn=min(abs((sort?vector[s[b]]:vector[b])- $
+             rebin([find],nf,2)),DIMENSION=2,pos)
+  pos=j>0+pos/nf
+  return,sort?s[pos]:pos
+
+end 
+
+function SelectScans, datamet
+
+  nscans = 4
+  minslope_met = 0.855d0
+  rampup = where(normalize(-1.d0*ts_diff(datamet.mdeltaL,1)) gt minslope_met)
+
+  ;split scans
+  scans = dblarr(1)
+  for i=0,nscans-1 do begin
+
+    stepng = where(datamet.stp eq i+1)
+    scan = intersect(rampup, stepng)
+    scans = [scans,scan]
+
+  endfor
+  scans = scans[1:*]	;because there is a zero as first element
+
+  return, scans
+
+end
+
+function loadMET, file, fsuid
+
+  data = mrdfits(file, 9, /silent)
+  deltaLA = data.deltal
+  status = data.status
+  T = data.time
+  if (abs(mean(ts_diff(data.time, 1))) lt 200.d0 or abs(mean(ts_diff(data.time, 1))) gt 300.d0) then begin
+    print, 'Something wrong mith Metrology data A'
+    stop
+  endif else begin
+    period = 250.d0
+  endelse
+
+  data = 0.
+
+  data = mrdfits(file, 10, /silent)
+  deltaLB = data.deltal
+  TLB = data.time
+  if (abs(mean(ts_diff(data.time, 1))) lt 200.d0 or abs(mean(ts_diff(data.time, 1))) gt 300.d0) then begin
+    print, 'Something wrong mith Metrology data B'
+    stop
+  endif else begin
+    period = 250.d0
+  endelse
+
+  if (T[0] lt TLB[0]) then T[0] = TLB[0]+1.d0
+  if (T[n_elements(T)-1] gt TLB[n_elements(TLB)-1]) then T[n_elements(T)-1] = TLB[n_elements(TLB)-1]-1.d0
+
+  newLB = interpol(deltaLB,TLB,T)
+
+  deltaL = deltaLA - newLB
+
+  if (mean(status) ne 319. and period ne 250.d0) then begin
+    print, 'Problem in the metrology signal status: ',mean(status)
+    stop
+  endif
+
+  if (period ne 250.d0) then begin
+    print, 'Metrology signal: wrong sampling time: ',period 
+  endif
+
+  datamet = {T:T, status:status, deltaL:deltaL, period:period}
+
+  return, datamet
+
+end
+
+
+function loadFSU, file, fsuid, opdcid
+
+;read in FSU data
+  if (fsuid eq 'A') then obs = mrdfits(file, 7, /silent)
+;   if (fsuid eq 'B') then obs = mrdfits(path+file, 8, /silent)
+
+  obs2 = mrdfits(file, 11, /silent)
+
+  idxdouble = closest(obs2.time, obs.time)
+
+  time = obs.time
+  snr = obs.pdsnr
+  stp = obs.stepping_phase
+  A = obs.data1	;white light is A[0], spectral channel 1,...,5 is A[1...5]
+  B = obs.data2
+  C = obs.data3
+  D = obs.data4
+  darkwhite = obs.data5
+  fuoffset = obs2[idxdouble].fuoffset
+  rtoffset = obs2[idxdouble].rtoffset
+  state = obs2[idxdouble].state
+
+  data = {time:time, snr:snr, A:A, B:B, C:C, D:D, darkwhite:darkwhite, stp:stp, fuoffset:fuoffset, rtoffset:rtoffset, state:state}
+
+  return, data
+
+end
+
+
+function RegridScans, data, datamet, scans
+
+  step = (max(datamet.mdeltaL[scans]) - min(datamet.mdeltaL[scans]))/double(n_elements(scans))
+
+  metgrid = (step*dindgen(n_elements(scans)))+min(datamet.mdeltaL[scans])
+
+  stepsize = step
+  scanlen  = (max(datamet.mdeltaL[scans]) - min(datamet.mdeltaL[scans]))
+  nsamples = n_elements(scans)
+
+  x = datamet.mdeltaL[scans]
+  idx = sort(x)
+  x = x[idx]
+  A = dblarr(6,n_elements(idx))
+  B = dblarr(6,n_elements(idx))
+  C = dblarr(6,n_elements(idx))
+  D = dblarr(6,n_elements(idx))
+
+  for pixel=0,5 do begin
+
+    y = data.A[pixel,scans]
+    y = y[idx]
+    A[pixel,*] = interpol(y,x,metgrid)
+
+    y = data.B[pixel,scans]
+    y = y[idx]
+    B[pixel,*] = interpol(y,x,metgrid)
+
+    y = data.C[pixel,scans]
+    y = y[idx]
+    C[pixel,*] = interpol(y,x,metgrid)
+
+    y = data.D[pixel,scans]
+    y = y[idx]
+    D[pixel,*] = interpol(y,x,metgrid)
+
+  endfor
+
+  rgdata = {A:A, B:B, C:C, D:D, metgrid:metgrid, stepsize:stepsize, scanlen:scanlen, nsamples:nsamples}
+
+  return, rgdata
+
+end
+
+
+function FFTScans, rgobs
+
+  ;Number of the first sample that defines the tail of the fft.
+  ;tailstart = floor(n_elements(time)/8.d0)*7.d0
+  tailstart = floor(rgobs.nsamples/8.d0)*7.d0
+
+  A = dblarr(6,n_elements(rgobs.A[0,*]))
+  B = dblarr(6,n_elements(rgobs.A[0,*]))
+  C = dblarr(6,n_elements(rgobs.A[0,*]))
+  D = dblarr(6,n_elements(rgobs.A[0,*]))
+
+  for i=0,5 do begin
+
+    A[i,*] = abs(fft(rgobs.A[i,*],-1))
+    B[i,*] = abs(fft(rgobs.B[i,*],-1))
+    C[i,*] = abs(fft(rgobs.C[i,*],-1))
+    D[i,*] = abs(fft(rgobs.D[i,*],-1))
+
+  endfor
+
+  ;Number of the first sample that defines the tail of the fft.
+  A[*,0:9] = 0.d0
+  B[*,0:9] = 0.d0
+  C[*,0:9] = 0.d0
+  D[*,0:9] = 0.d0
+
+  ;blank tail of the fft 
+  A[*,tailstart+1:*] = 0.d0
+  B[*,tailstart+1:*] = 0.d0
+  C[*,tailstart+1:*] = 0.d0
+  D[*,tailstart+1:*] = 0.d0
+
+  fftdata = {A:A, B:B, C:C, D:D}
+
+  return, fftdata
+
+end
+
+
+;xpGaussPeak
+function GaussPeak, fftdata
+
+  ;auxiliar grid
+  auxgrid = dindgen(n_elements(fftdata.A[0,*]))
+
+  peakA = dblarr(6)
+  peakB = dblarr(6)
+  peakC = dblarr(6)
+  peakD = dblarr(6)
+  startval = transpose([[800.d0, 72.d0, 5.0d0], [300.d0, 81.d0, 1.3d0], $
+	      [500.d0, 77.d0, 1.6d0], [500.d0, 73.d0, 1.4d0], $
+	      [500.d0, 70.d0, 1.2d0], [500.d0, 67.d0, 0.8d0]])
+
+  gauss_nterms = '3'
+  dummy_err = dblarr(n_elements(auxgrid))
+
+  for j=0,5 do begin
+
+    ;in this case gaussfit performs better than mpfitfun
+;     paramA = mpfitfun('fit_gauss_'+strcompress(gauss_nterms, /rem)+'terms', auxgrid, fftdata.A[j,*], dummy_err, startval[j,*], weights=dummy_err, maxiter=2000, niter=niter, status=status, bestnorm=bestnorm, yfit=resultA, perror=perror, dof=dof, /quiet)
+;     peakA[j] = paramA[1]
+; 
+;     paramB = mpfitfun('fit_gauss_'+strcompress(gauss_nterms, /rem)+'terms', auxgrid, fftdata.B[j,*], dummy_err, startval[j,*], weights=dummy_err, maxiter=2000, niter=niter, status=status, bestnorm=bestnorm, yfit=resultB, perror=perror, dof=dof, /quiet)
+;     peakB[j] = paramB[1]
+; 
+;     paramC = mpfitfun('fit_gauss_'+strcompress(gauss_nterms, /rem)+'terms', auxgrid, fftdata.C[j,*], dummy_err, startval[j,*], weights=dummy_err, maxiter=2000, niter=niter, status=status, bestnorm=bestnorm, yfit=resultC, perror=perror, dof=dof, /quiet)
+;     peakC[j] = paramC[1]
+; 
+;     paramD = mpfitfun('fit_gauss_'+strcompress(gauss_nterms, /rem)+'terms', auxgrid, fftdata.D[j,*], dummy_err, startval[j,*], weights=dummy_err, maxiter=2000, niter=niter, status=status, bestnorm=bestnorm, yfit=resultD, perror=perror, dof=dof, /quiet)
+;     peakD[j] = paramD[1]
+
+    resultA = gaussfit(auxgrid, fftdata.A[j,*], paramA, estimates=startval[j,*], nterms=3)
+    peakA[j] = paramA[1]
+    ;dum = max(resultA, idxpeakA)
+    ;peakA[j] = idxpeakA
+
+    resultB = gaussfit(auxgrid, fftdata.B[j,*], paramB, estimates=startval[j,*], nterms=3)
+    peakB[j] = paramB[1]
+    ;dum = max(resultB, idxpeakB)
+    ;peakB[j] = idxpeakB
+
+    resultC = gaussfit(auxgrid, fftdata.C[j,*], paramC, estimates=startval[j,*], nterms=3)
+    peakC[j] = paramC[1]
+    ;dum = max(resultC, idxpeakC)
+    ;peakC[j] = idxpeakC
+
+    resultD = gaussfit(auxgrid, fftdata.D[j,*], paramD, estimates=startval[j,*], nterms=3)
+    peakD[j] = paramD[1]
+    ;dum = max(resultD, idxpeakD)
+    ;peakD[j] = idxpeakD
+
+    window, 0, xs=600, ys=1000
+    !p.multi=[0,1,4]
+    plot, auxgrid, fftdata.A[j,*], xst=1, xr=[50,100], charsize=2
+;     oplot, auxgrid, smooth(fftdata.A[j,*], 11), color=fsc_color('green')
+    oplot, auxgrid, resultA, color=fsc_color('red')
+    plot, auxgrid, fftdata.B[j,*], xst=1, xr=[50,100], charsize=2
+;     oplot, auxgrid, smooth(fftdata.B[j,*], 11), color=fsc_color('green')
+    oplot, auxgrid, resultB, color=fsc_color('red')
+    plot, auxgrid, fftdata.C[j,*], xst=1, xr=[50,100], charsize=2
+;     oplot, auxgrid, smooth(fftdata.C[j,*], 11), color=fsc_color('green')
+    oplot, auxgrid, resultC, color=fsc_color('red')
+    plot, auxgrid, fftdata.D[j,*], xst=1, xr=[50,100], charsize=2
+;     oplot, auxgrid, smooth(fftdata.D[j,*], 11), color=fsc_color('green')
+    oplot, auxgrid, resultD, color=fsc_color('red')
+    !p.multi=[0,1,0]
+    hak
+
+  endfor
+
+  peak = {A:peakA, B:peakB, C:peakC, D:peakD}
+
+  return, peak
+
+end
+
+
+;xpBaryCenter
+function BaryCenter, fftdata
+
+  peakA = dblarr(6)
+  peakB = dblarr(6)
+  peakC = dblarr(6)
+  peakD = dblarr(6)
+
+  for j=0,5 do begin
+
+    peakA[j] = 0.d0
+    peakB[j] = 0.d0
+    peakC[j] = 0.d0
+    peakD[j] = 0.d0
+
+    valA = max(fftdata.A[j,*],posA)
+    valB = max(fftdata.B[j,*],posB)
+    valC = max(fftdata.C[j,*],posC)
+    valD = max(fftdata.D[j,*],posD)
+
+    pos = round((posA+posB+posC+posD)/4.d0)
+    start_pos = pos - 50.d0
+    end_pos = pos + 50.d0
+
+    if  (start_pos lt 0. or end_pos lt 0.) then begin 
+      print, ''
+      print, 'Something wrong with Barycenter Function'
+      stop;return
+    endif
+
+    if (end_pos gt n_elements(fftdata.A[j,*])) then begin
+      print, ''
+      print, 'Something wrong with Barycenter Function'
+      stop;return
+    endif
+
+    for k=start_pos,end_pos-1 do begin
+
+      peakA[j] = peakA[j] + fftdata.A[j,k]*k
+      peakB[j] = peakB[j] + fftdata.B[j,k]*k
+      peakC[j] = peakC[j] + fftdata.C[j,k]*k
+      peakD[j] = peakD[j] + fftdata.D[j,k]*k
+
+    endfor
+
+    peakA[j] = peakA[j]/total(fftdata.A[j,start_pos:end_pos])
+    peakB[j] = peakB[j]/total(fftdata.B[j,start_pos:end_pos])
+    peakC[j] = peakC[j]/total(fftdata.C[j,start_pos:end_pos])
+    peakD[j] = peakD[j]/total(fftdata.D[j,start_pos:end_pos])
+
+  endfor
+
+  peak = {A:peakA, B:peakB, C:peakC, D:peakD}
+
+  return, peak
+
+end
+
+
+;xpPhShifts
+function PhShifts, rgdata, wlen 
+
+  porcentage = 0.3d0
+  middle = uint(n_elements(rgdata.A[0,*]) / 2.d0)
+  en = round(middle + (porcentage*n_elements(rgdata.A[0,*])))
+  st = round(middle - (porcentage*n_elements(rgdata.A[0,*])))
+
+  tmp = double(n_elements(rgdata.A[0,st:en]))
+  lag1 = dindgen(tmp-1.d0)-(tmp-1.d0)
+  lag2 = dindgen(tmp)
+  lag = [lag1,lag2]
+
+;   tmp = rgdata.A[0,st:en]
+;   lag1 = linspace(min(tmp),max(tmp),n_elements(tmp))
+;   lag2 = linspace(min(-tmp),max(-tmp),n_elements(tmp))
+;   lagtmp = [lag2,lag1[1:n_elements(lag1)-1.d0]]
+;   lag = dindgen(n_elements(lagtmp))-(n_elements(lagtmp)-1.d0)/2.d0
+
+  phserr = dblarr(6,4)
+  ang = dblarr(3,6)
+  for j=0,5 do begin
+
+;     nspr = 1600.d0
+;     fA = normalize(rgdata.A[j,st:en])
+;     fB = normalize(rgdata.B[j,st:en])
+;     fC = normalize(rgdata.C[j,st:en])
+;     fD = normalize(rgdata.D[j,st:en])
+; 
+;     crsprod_MOD,fA,fA,nspr,xaA,crmin,crmax
+;     crsprod_MOD,fA,fB,nspr,xaB,crmin,crmax
+;     crsprod_MOD,fA,fC,nspr,xaC,crmin,crmax
+;     crsprod_MOD,fA,fD,nspr,xaD,crmin,crmax
+; 
+;     aam = max(normalize(xaA), pos0)
+;     abm = max(normalize(xaB), pos1)
+;     acm = max(normalize(xaC), pos2)
+;     adm = max(normalize(xaD), pos3)
+;     pos = [pos0, pos1, pos2, pos3]
+; 
+;     daam  = abs(pos[0]-nspr) * rgdata.stepsize
+;     dabm  = abs(pos[1]-nspr) * rgdata.stepsize
+;     dacm  = abs(pos[2]-nspr) * rgdata.stepsize
+;     dadm  = abs(pos[3]-nspr) * rgdata.stepsize
+; 
+;     lambda = (wlenA[j] + wlenB[j] + wlenC[j] + wlenD[j])/4.d0
+; 
+;     d_ab_rad = (dabm * (2.d0*!DPI))/lambda
+;     d_ac_rad = (dacm * (2.d0*!DPI))/lambda
+;     d_ad_rad = (dadm * (2.d0*!DPI))/lambda
+; 
+;     b0 = d_ab_rad-(!DPI/2.d0)
+;     c0 = d_ac_rad-(!DPI)
+;     d0 = d_ad_rad-((3.d0*!DPI)/2.d0)
+; 
+;     phserr[j,0] = sin(c0)
+;     phserr[j,1] = 1.d0+cos(c0)
+;     phserr[j,2] = cos(b0)+cos(d0)
+;     phserr[j,3] = -sin(b0)-sin(d0)
+; 
+;     ang[0,j] = b0
+;     ang[1,j] = c0
+;     ang[2,j] = d0
+; 
+;     angval = ang * 180.d0/!DPI
+; stop
+; 
+
+    xaa  = c_correlate(normalize(rgdata.A[j,st:en]),normalize(rgdata.A[j,st:en]), lag, /double)
+    xab  = c_correlate(normalize(rgdata.A[j,st:en]),normalize(rgdata.B[j,st:en]), lag, /double)
+    xac  = c_correlate(normalize(rgdata.A[j,st:en]),normalize(rgdata.C[j,st:en]), lag, /double)
+    xad  = c_correlate(normalize(rgdata.A[j,st:en]),normalize(rgdata.D[j,st:en]), lag, /double)
+
+;     envelope, abs(xaa), 10., mnA, mxA, indA
+;     envelope, abs(xaB), 10., mnB, mxB, indB
+;     envelope, abs(xaC), 10., mnC, mxC, indC
+;     envelope, abs(xaD), 10., mnD, mxD, indD
+; 
+;     startval = [1.d0, 0.d0, 500.]
+;     resultA = gaussfit(lag[indA], mxA, paramA, estimates=startval, nterms=3)
+;     resultB = gaussfit(lag[indB], mxB, paramB, estimates=startval, nterms=3)
+;     resultC = gaussfit(lag[indC], mxC, paramC, estimates=startval, nterms=3)
+;     resultD = gaussfit(lag[indD], mxD, paramD, estimates=startval, nterms=3)
+; 
+; stop
+    aam = max(normalize(xaa), pos0)
+    abm = max(normalize(xab[pos0:*]), pos1)
+    acm = max(normalize(xac[pos0:*]), pos2)
+    adm = max(normalize(xad[pos0:*]), pos3)
+    pos = [pos0, pos1+pos0, pos2+pos0, pos3+pos0]
+
+    daam  = abs(lag[pos[0]]) * rgdata.stepsize
+    dabm  = abs(lag[pos[1]]) * rgdata.stepsize
+    dacm  = abs(lag[pos[2]]) * rgdata.stepsize
+    dadm  = abs(lag[pos[3]]) * rgdata.stepsize
+
+    lambda = (wlen[0,j] + wlen[1,j] + wlen[2,j] + wlen[3,j])/4.d0
+
+    d_ab_rad = (dabm * (2.d0*!DPI))/lambda
+    d_ac_rad = (dacm * (2.d0*!DPI))/lambda
+    d_ad_rad = (dadm * (2.d0*!DPI))/lambda
+
+    b0 = d_ab_rad-(!DPI/2.d0)
+    c0 = d_ac_rad-(!DPI)
+    d0 = d_ad_rad-((3.d0*!DPI)/2.d0)
+
+    phserr[j,0] = sin(c0)
+    phserr[j,1] = 1.d0+cos(c0)
+    phserr[j,2] = cos(b0)+cos(d0)
+    phserr[j,3] = -sin(b0)-sin(d0)
+    
+    ang[0,j] = b0
+    ang[1,j] = c0
+    ang[2,j] = d0
+
+  endfor
+
+  angval = ang * 180.d0/!DPI
+  angval[0,*] = 90.d0+angval[0,*]
+  angval[1,*] = 180.d0+angval[1,*]
+  angval[2,*] = 270.d0+angval[2,*]
+
+  ang = {phserr:phserr, angval:angval}
+
+  return, ang
+
+end
+
+
+pro calibrate_FSUA_LAB, fitopt
+
+if (n_params() lt 1) then begin
+  print, ''
+  print, 'calibrate_FSUA_LAB, fitopt (can be B - BaryCenter or G - Gauss)'
+  return
+end
+
+;path = '/home/amueller/work/MIDI_FSUA/Pipeline/Calibration/'
+;file = 'PACMAN_LAB_FSURESPONSE_317_0001.fits'
+
+;define path and fsu response file
+  path = ''
+  print, ''
+  read, 'Enter path, e.g. /media/disk_MIDIFSU/MIDI_FSUA/MIDI_FSUA_P90RATZKA/FSUAdata/LabCalibration: ', path
+  path = path+'/'
+
+  print,''
+  print,'Following LAB FSU RESPONSE files found: '
+  tmp = file_search(path+'*LAB_FSURESPONSE*.fits', count=nf)
+  if (tmp[0] eq '') then begin
+
+    print, ''
+    print, 'No LAB FSU RESPONSE files found'
+    stop
+
+  endif else begin
+
+    for i=0,nf-1 do begin
+      print, uint(i+1), ' ', tmp[i]
+    endfor
+
+    print, ''
+
+    read,'Enter which file you want to use: ', usefiles
+    print, ''
+    file = tmp[usefiles-1]
+
+  endelse
+
+;extract file ID
+  pos1 = strpos(file, 'FSURESPONSE_')
+  pos2 = strpos(file, '.fits')
+  fileid = strmid(file, pos1+12, pos2-pos1-17)
+
+;define path for results
+  resultpath = path+'LabCal_'+fileid+'/'
+  spawn, 'mkdir '+resultpath
+
+;fixed values for FSUA LabCal
+fsuid = 'A'
+opdcid = 'opdc'
+
+;xpLoadFSU
+data = loadFSU(file, fsuid, opdcid)
+
+
+;xpLoadMET
+datamet = loadMET(file, fsuid)
+mdeltaL = interpol(datamet.deltaL, datamet.T, data.time)
+mStat = interpol(datamet.status, datamet.T, data.time)
+datamet = {mStat:mStat, mdeltaL:mdeltaL, stp:data.stp}
+
+
+;xpSelectScans
+scans = SelectScans(datamet)
+if (total(size(scans)) eq 0.d0) then begin
+  print, 'Error. No Fringe Scans Found.'
+  stop
+endif
+
+;xpRegridScans
+rgdata = RegridScans(data, datamet, scans)
+
+;xpFFTScans
+fftdata = FFTScans(rgdata)
+
+;xpGaussPeak, xpBaryCenter
+  if (fitopt eq 'G') then peak = GaussPeak(fftdata)
+  if (fitopt eq 'B') then peak = BaryCenter(fftdata)
+
+;xpPeak2Wlen
+  dfreq = (2.d0*!DPI/rgdata.stepsize)/double(rgdata.nsamples)
+  wlenA = 2.d0*!DPI/(dfreq*peak.A-1.d0)
+  wlenB = 2.d0*!DPI/(dfreq*peak.B-1.d0)
+  wlenC = 2.d0*!DPI/(dfreq*peak.C-1.d0)
+  wlenD = 2.d0*!DPI/(dfreq*peak.D-1.d0)
+
+  wlen = dblarr(4,6)
+  wlen[0,*] = wlenA
+  wlen[1,*] = wlenB
+  wlen[2,*] = wlenC
+  wlen[3,*] = wlenD
+
+;xpPhShifts
+  ang = PhShifts(rgdata, wlen)
+  phserr = ang.phserr
+  angval = ang.angval
+
+;Wavelength Quality Control
+qcwlen = strarr(4,6)
+for i=0,3 do begin
+  for j=0,5 do begin
+
+    if (j eq 0) then $
+    if (wlen[i,j] gt 2.2d-6 and wlen[i,j] lt 2.3d-6) then qcwlen[i,j] = '+1' else qcwlen[i,j] = '-1'
+
+    if (j eq 1) then $
+    if (wlen[i,j] gt 1.95d-6 and wlen[i,j] lt 2.1d-6) then qcwlen[i,j] = '+1' else qcwlen[i,j] = '-1'
+
+    if (j eq 2) then $
+    if (wlen[i,j] gt 2.05d-6 and wlen[i,j] lt 2.2d-6) then qcwlen[i,j] = '+1' else qcwlen[i,j] = '-1'
+
+    if (j eq 3) then $
+    if (wlen[i,j] gt 2.15d-6 and wlen[i,j] lt 2.3d-6) then qcwlen[i,j] = '+1' else qcwlen[i,j] = '-1'
+
+    if (j eq 4) then $
+    if (wlen[i,j] gt 2.3d-6 and wlen[i,j] lt 2.4d-6) then qcwlen[i,j] = '+1' else qcwlen[i,j] = '-1'
+
+    if (j eq 5) then $
+    if (wlen[i,j] gt 2.35d-6 and wlen[i,j] lt 2.5d-6) then qcwlen[i,j] = '+1' else qcwlen[i,j] = '-1'
+
+  endfor
+endfor
+
+print, ''
+print, 'Wavelength'
+print, wlen, qcwlen
+
+;Phase Shift Quality Control
+qcangval = strarr(3,6)
+for i=0,2 do begin
+  for j=0,5 do begin
+
+    if (i eq 0) then $
+    if (angval[i,j] ge 65.d0 and angval[i,j] le 85.d0) then qcangval[i,j] = '+1' else qcangval[i,j] = '-1'
+
+    if (i eq 1) then $
+    if (angval[i,j] gt 155.d0 and angval[i,j] lt 175.d0) then qcangval[i,j] = '+1' else qcangval[i,j] = '-1'
+
+    if (i eq 2) then $
+    if (angval[i,j] gt 215.d0 and angval[i,j] lt 250.d0) then qcangval[i,j] = '+1' else qcangval[i,j] = '-1'
+
+  endfor
+endfor
+
+print, ''
+print, 'Phase Shifts'
+print, angval, qcangval
+
+;output
+
+openw, lun, resultpath+'FSUA_Calibration_ABCD.dat', width=1400, /get_lun
+  for i=0,5 do begin
+    for j=0,3 do begin
+      printf, lun, phserr[i,j], format='(f15.10)'
+    endfor
+  endfor
+close, lun
+free_lun, lun
+
+openw, lun, resultpath+'FSUA_Calibration_Angles.dat', width=1400, /get_lun
+  for i=0,5 do printf, lun, angval[*,i], format='(3f15.10)'
+  for i=0,5 do printf, lun, qcangval[*,i], format='(3a10)'
+close, lun
+free_lun, lun
+
+openw, lun, resultpath+'FSUA_Calibration_Lambda.dat', width=1400, /get_lun
+  for i=0,5 do begin
+    for j=0,3 do begin
+      printf, lun, wlen[j,i], format='(e20.10)'
+    endfor
+  endfor
+close, lun
+free_lun, lun
+
+openw, lun, resultpath+'FSUA_Calibration_Waves.dat', width=1400, /get_lun
+  for i=0,5 do begin
+    for j=0,3 do begin
+      printf, lun, wlen[j,i], qcwlen[j,i], format='(e20.10, a5)'
+    endfor
+  endfor
+close, lun
+free_lun, lun
+
+
+stop
+end

@@ -1,0 +1,75 @@
+pro calibrate_Fcorr_EWS_CustomMask_P92Choquet
+
+obsnum = ''
+; read, 'Enter Observation ID: ', obsnum
+obsnum = 'P92CHOQUET'
+
+readcol, '/home/amueller/work/MIDI_FSUA/observation.txt', comm, id, scical, nfl, midi, photA, photB, fsu, maskname, photo, format='a,a,a,d,a,a,a,a,a,a', skipline=1, /silent
+
+idxpair = where(comm eq obsnum)
+if (idxpair[0] ne -1) then begin
+
+  comm = comm[idxpair]
+  id = id[idxpair]
+  scical = scical[idxpair]
+  nfl = nfl[idxpair]
+  midi = midi[idxpair]
+  fsu = fsu[idxpair]
+  maskname = maskname[idxpair]
+  photA = photA[idxpair]
+  photB = photB[idxpair]
+
+endif else begin
+
+  print, ''
+  print, 'Commissioning number does not match with current data set in observation.txt.'
+  print, ''
+  return
+
+endelse
+
+;================================================================================
+
+;cal-sci pair for Choquet
+
+if (obsnum ne 'P92CHOQUET') then stop
+
+	  ;HD76111 HD80934
+diameter = [0.411d0, 0.467d0]	;mas
+cals = ['HD76111', 'HD80934']
+
+;	  CAL	SCI
+pair = [[id[0], id[1]], $	;U13
+	[id[2], id[1]], $	;U13
+	[id[3], id[4]], $	;U14
+	[id[5], id[4]], $	;U14
+	[id[6], id[7]], $	;U13
+	[id[8], id[7]], $	;U13
+	[id[8], id[9]], $	;U13
+	[id[10], id[9]], $	;U13
+	[id[11], id[12]], $	;U14
+	[id[13], id[12]]]	;U14
+
+idxpair =  [$
+
+	[0, 1], $	;U13
+	[2, 1], $	;U13
+
+	[3, 4], $	;U14
+	[5, 4], $	;U14
+
+	[6, 7], $	;U13
+	[8, 7], $	;U13
+	[8, 9], $	;U13
+	[10, 9], $	;U13
+
+	[11, 12], $	;U14
+	[13, 12] $	;U14
+	]
+npair = n_elements(pair[0,*])
+
+
+
+
+stop
+end

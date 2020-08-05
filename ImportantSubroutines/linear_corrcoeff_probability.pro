@@ -1,0 +1,36 @@
+function prob_funct, rcorr
+
+  common param, nu
+
+  return, (1.d0/sqrt(!DPI)) * gamma((nu+1.d0)/2.d0) / gamma(nu/2.d0) * (1.d0-rcorr^2.d0)^((nu-2.d0)/2.d0)
+
+end
+
+;computes linear correlation coefficient and probability
+; Der Korrelations-Koeffizient r kann nicht als Indikator f¨ur den Grad einer Korrelation
+; herangezogen werden. Nach Bevington & Robinson (2003) kann eine Wahrscheinlichkeit
+; P(r,N) berechnet werden, um eine Aussage treffen zu k¨onnen, ob eine zuf¨allige
+; Auswahl von N unkorrelierten experimentellen Datenpunkten zu einem experimentellen
+; Korrelations-Koeffizienten f¨uhrt, der genauso groß oder gr¨oßer wie der gemessene Wert
+; von |r| ist. mit nu = N −2 als Anzahl der Freiheitsgrade. Erh¨alt man einen kleinen Wert f¨ur die Wahrscheinlichkeit
+; P(r,N) < 1 · 10−5 bedeutet dies, dass es sehr wahrscheinlich ist, dass die
+; Datens¨atze linear miteinander korreliert sind (Bevington & Robinson, 2003).
+
+pro linear_corrcoeff_probability, x, y, rcorr, prob_corr
+
+  common param, nu
+
+  if (n_elements(x) ne n_elements(y)) then begin
+    print, 'Arrays need to have the same number of elements. STOP.'
+    return
+  endif
+
+  nu = n_elements(x)-2.d0	;degree of freedom
+
+  rcorr = correlate(x,y, /double)
+
+  qsimp, 'prob_funct',abs(rcorr),1,prob_corr
+  prob_corr = 2.d0*prob_corr
+  ;prob_corr = 2.d0 * qsimp('prob_funct',abs(rcorr),1,/double)
+
+end

@@ -1,0 +1,192 @@
+@readcol.pro
+@numlines.pro
+@remchar.pro
+@gettok.pro
+@repchr.pro
+@strsplit.pro
+@strnumber.pro
+@valid_num.pro
+@fxpar.pro
+@fxbtform.pro
+@fxbfind.pro
+@ieee_to_host.pro
+@fxbtdim.pro
+@fxparpos.pro
+@detabify.pro
+@errplot.pro
+
+pro calibrateVis_Koresko_CustomMask_P92CHOQUET
+
+print, ''
+print, 'HAS TO BE EXECUTED IN MIA+EWS'
+print, ''
+
+obsnum = ''
+; read, 'Enter Observation ID: ', obsnum
+obsnum = 'P92CHOQUET'
+
+readcol, '/home/amueller/work/MIDI_FSUA/observation.txt', comm, id, scical, nfl, midi, photA, photB, fsu, maskname, photo, format='a,a,a,d,a,a,a,a,a,a', skipline=1, /silent
+
+idxpair = where(comm eq obsnum)
+if (idxpair[0] ne -1) then begin
+
+  comm = comm[idxpair]
+  id = id[idxpair]
+  scical = scical[idxpair]
+  nfl = nfl[idxpair]
+  midi = midi[idxpair]
+  fsu = fsu[idxpair]
+  maskname = maskname[idxpair]
+  photA = photA[idxpair]
+  photB = photB[idxpair]
+
+endif else begin
+
+  print, ''
+  print, 'Commissioning number does not match with current data set in observation.txt.'
+  print, ''
+  return
+
+endelse
+
+;================================================================================
+
+;cal-sci pair for Choquet
+
+if (obsnum ne 'P92CHOQUET') then stop
+
+	  ;HD76111 HD80934
+diameter = [0.411d0, 0.467d0]	;mas
+cals = ['HD76111', 'HD80934']
+
+;	  CAL	SCI
+pair = [[id[0], id[1]], $	;U13
+	[id[2], id[1]], $	;U13
+	[id[3], id[4]], $	;U14
+	[id[5], id[4]], $	;U14
+	[id[6], id[7]], $	;U13
+	[id[8], id[7]], $	;U13
+	[id[8], id[9]], $	;U13
+	[id[10], id[9]], $	;U13
+	[id[11], id[12]], $	;U14
+	[id[13], id[12]]]	;U14
+
+idxpair =  [[0, 1], $	;U13
+	[2, 1], $	;U13
+	[3, 4], $	;U14
+	[5, 4], $	;U14
+	[6, 7], $	;U13
+	[8, 7], $	;U13
+	[8, 9], $	;U13
+	[10, 9], $	;U13
+	[11, 12], $	;U14
+	[13, 12]]	;U14
+
+npair = n_elements(pair[0,*])
+;================================================================================
+
+time = strmid(midi,16,24)
+nobs = n_elements(midi)
+
+;select reduction method
+redmethod = ''
+; print, ''
+; print, '     1 EWS'
+; print, '     2 CohInt'
+; print, '     3 Koresko'
+; read, 'For which reduction method?: ', redmethod
+redmethod = '3'
+if (redmethod eq '1') then $
+  resultsdir = '/media/disk_MIDIFSU/MIDI_FSUA/MIDI_FSUA_'+obsnum+'/MIDIreduced_EWS_CustomMask/'
+if (redmethod eq '2') then $
+  resultsdir = '/media/disk_MIDIFSU/MIDI_FSUA/MIDI_FSUA_'+obsnum+'/MIDIreduced_CohInt_CustomMask/'
+if (redmethod eq '3') then $
+  resultsdir = '/media/disk_MIDIFSU/MIDI_FSUA/MIDI_FSUA_'+obsnum+'/MIDIreduced_Koresko_CustomMask/'
+print, ''
+
+
+photdir = '/media/disk_MIDIFSU/MIDI_FSUA/MIDI_FSUA_'+obsnum+'/Photometry_CustomMask/'
+
+midipath = '/media/disk_MIDIFSU/MIDI_FSUA/MIDI_FSUA_'+obsnum+'/MIDIdata/'
+workingdir = '/media/disk_MIDIFSU/MIDI_FSUA/temp_WorkingDir/'
+file_mkdir, workingdir
+
+diameter = diameter/1.d3
+
+;copy files in workingdir needed for midicalibrate
+for i=0,npair-1 do begin
+
+  ;cal
+  spawn, 'cp '+resultsdir+pair[0,i]+'_'+time[idxpair[0,i]]+'.corr.fits '+workingdir+'/.'
+  spawn, 'cp '+resultsdir+pair[0,i]+'_'+time[idxpair[0,i]]+'.fringes.fits '+workingdir+'/.'
+  spawn, 'cp '+resultsdir+pair[0,i]+'_'+time[idxpair[0,i]]+'.redcal.fits '+workingdir+'/.'
+  spawn, 'cp '+photdir+pair[0,i]+'_'+time[idxpair[0,i]]+'.photometry.fits '+workingdir+'/.'
+
+  ;sci
+  spawn, 'cp '+resultsdir+pair[1,i]+'_'+time[idxpair[1,i]]+'.corr.fits '+workingdir+'/.'
+  spawn, 'cp '+resultsdir+pair[1,i]+'_'+time[idxpair[1,i]]+'.fringes.fits '+workingdir+'/.'
+  spawn, 'cp '+resultsdir+pair[1,i]+'_'+time[idxpair[1,i]]+'.redcal.fits '+workingdir+'/.'
+  spawn, 'cp '+photdir+pair[1,i]+'_'+time[idxpair[1,i]]+'.photometry.fits '+workingdir+'/.'
+
+  if (pair[0,i] eq cals[0]) then diam = diameter[0]
+  if (pair[0,i] eq cals[1]) then diam = diameter[1]
+
+  cd, workingdir
+
+  midicalibrate, pair[1,i]+'_'+time[idxpair[1,i]], pair[0,i]+'_'+time[idxpair[0,i]], calflux=nfl[idxpair[0,i]], diam=diam, /print
+
+  ;rename file names of sci in the way: sci_time_cal....
+  spawn, 'mv '+pair[1,i]+'_'+time[idxpair[1,i]]+'.calcorr.fits '+pair[1,i]+'_'+time[idxpair[1,i]]+'_'+pair[0,i]+'_'+time[idxpair[0,i]]+'.calcorr.fits '
+  spawn, 'mv '+pair[1,i]+'_'+time[idxpair[1,i]]+'.calvis.fits '+pair[1,i]+'_'+time[idxpair[1,i]]+'_'+pair[0,i]+'_'+time[idxpair[0,i]]+'.calvis.fits '
+  spawn, 'mv '+pair[1,i]+'_'+time[idxpair[1,i]]+'.calphot.fits '+pair[1,i]+'_'+time[idxpair[1,i]]+'_'+pair[0,i]+'_'+time[idxpair[0,i]]+'.calphot.fits '
+  spawn, 'mv '+pair[1,i]+'_'+time[idxpair[1,i]]+'calPlots.ps '+pair[1,i]+'_'+time[idxpair[1,i]]+'_'+pair[0,i]+'_'+time[idxpair[0,i]]+'.calPlots.ps '
+
+  spawn, 'mv *.calcorr.fits *.calvis.fits *.ps '+resultsdir
+  spawn, 'mv  *.calphot.fits '+photdir
+
+  spawn, 'rm *.fits'
+
+
+  ;rename and move ascii files for SCI
+  file = file_search(pair[1,i]+'*.dat')
+
+  ;UVW file has no '.', insert one
+  idx = strmatch(file, '*UVW*')
+  idx1 = where(idx ne 0)
+  pos1 = strpos(file[idx1], '0U', /reverse_search)
+  fn = strmid(file[idx1], 0, pos1+1)+'.UVW.dat'
+  spawn, 'mv '+file[idx1]+' '+fn
+
+  file = file_search(pair[1,i]+'*.dat', count=nfiles)
+  for j=0,nfiles-1 do begin
+
+    pos = strpos(file[j], '0.')
+    fn = pair[1,i]+'_'+time[idxpair[1,i]]+'_'+pair[0,i]+'_'+time[idxpair[0,i]]+strmid(file[j], pos+1, strlen(file[j])-pos)
+
+    spawn, 'mv '+file[j]+' '+fn
+
+  endfor
+
+
+  ;rename and move ascii files for CAL
+  file = file_search(pair[0,i]+'*.dat', count=nfiles)
+  for j=0,nfiles-1 do begin
+
+    pos = strpos(file[j], '0.')
+    fn = pair[0,i]+'_'+time[idxpair[0,i]]+strmid(file[j], pos+1, strlen(file[j])-pos)
+
+    spawn, 'mv '+file[j]+' '+fn
+
+  endfor
+
+  spawn, 'mv *Photometry*.dat '+photdir
+  spawn, 'mv *.dat '+resultsdir
+
+endfor
+
+
+stop
+spawn, 'rm -r '+workingdir
+
+stop
+end

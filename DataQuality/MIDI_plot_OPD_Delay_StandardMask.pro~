@@ -1,0 +1,192 @@
+@gettok.pro
+@valid_num.pro
+@fxpar.pro
+@fxbtform.pro
+@fxbfind.pro
+@fxbtdim.pro
+@ieee_to_host.pro
+@fxparpos.pro
+@detabify.pro
+@cgimage.pro
+@cgdefcharsize.pro
+@str_size.pro
+@cgerase.pro
+@setdecomposedstate.pro
+@decomposedcolor.pro
+@cgcolor.pro
+@fsc_resize_image.pro
+@congrid.pro
+@cgplot.pro
+@cgsnapshot.pro
+@colorsareidentical.pro
+@cgaxis.pro
+@interpol.pro
+@strsplit.pro
+@mrdfits.pro
+@fxposit.pro
+@fxmove.pro
+@mrd_hread.pro
+@mrd_skip.pro
+@mrd_struct.pro
+@is_ieee_big.pro
+@setdefaultvalue.pro
+@cgdefaultcolor.pro
+@getdecomposedstate.pro
+@ps_background.pro
+@ts_diff.pro
+
+
+pro MIDI_plot_OPD_Delay_StandardMask
+
+print, ''
+print, 'This script has to be started from MIA+EWS!'
+print, ''
+
+
+commnum = ''
+read, 'Enter commissioning number: ', commnum
+;commnum = 'P88'
+print, ''
+mainpath = '/media/disk/MIDI_FSUA/COMM'+commnum+'/'
+datapath = ['MIDIreduced_EWS_StandardMask/', 'MIDIreduced_Koresko_StandardMask/']	;'MIDIreduced_faintEWS/'
+
+
+for i=0,n_elements(datapath)-1 do begin
+  print, i+1, '   ', datapath[i]
+endfor
+print, ''
+redmet = ''
+read, 'Select reduction method (number): ', redmet
+;redmet = '1'
+
+path = mainpath+datapath[uint(redmet)-1]
+
+resultpath = path+'/OPD_Delay/'
+file_mkdir, resultpath
+
+file = file_search(path+'*.groupdelay.fits', count=nfiles)
+
+;extract ID and time stamp
+pos1 = strpos(file, '/', /reverse_search)
+pos2 = strpos(file, '.gr', /reverse_search)
+
+id = strarr(nfiles)
+for i=0,nfiles-1 do begin
+  id[i] = strmid(file[i], pos1[i]+1, pos2[i]-pos1[i]-1)
+  print, i+1, '   ', id[i]
+endfor
+print, ''
+selid = ''
+read, 'Select ID you want to look at: ', selid
+;selid = '10'
+
+
+;=============================================================================================
+
+tag = id[selid-1]
+
+!x.charsize=0.8
+!y.charsize=0.8
+!p.font=0
+
+
+;Calculate the aspect ratio of display window.
+ aspectRatio = FLOAT(!D.Y_VSIZE) / !D.X_VSIZE 
+ xsize = 8.0
+  ysize = xsize * aspectRatio
+  IF ysize GT 10.5 THEN BEGIN
+    ysize = 10.5
+    xsize = ysize / aspectRatio
+  ENDIF
+  ; Calculate the offsets, so the output window is not off the page.
+  xoffset = (8.5 - xsize) / 2.0
+  yoffset = (11.0 - ysize) / 2.0
+
+set_plot, 'ps'
+device, isolatin=1
+device, filename=resultpath+tag+'_OPD_Delay.ps', /color,XSIZE=26, YSIZE=17, XOffset=xoffset, YOffset=yoffset
+
+micron = '!Mm!X'+'m'
+
+if (datapath[uint(redmet)-1] ne 'MIDIreduced_faintEWS/') then twopass = 0 else twopass = 1
+gd = oirgetdata(path+tag+'.groupdelay.fits',col='data1')
+gd = abs(csmooth2(pseudocomplex(gd.data1),20))
+;cgaxis, xaxis=1, xrange=[0,8000.d0*0.018d0], title='time [s]', xstyle=1
+sizetmp = size(gd)
+str = mrdfits(path+tag+'.groupdelay.fits', 3, /silent)
+rectime = (str[n_elements(str.time)-1].time-str[0].time)*86400.d0	;observing time in seconds
+
+cgimage, gd, xtitle='frames', ytitle='pixels', /axes, axkeywords={xticklen:-0.02, yticklen:-0.02, yminor:2, xstyle:9, ystyle:9};, title:tag}
+cgaxis, xaxis=1, xrange=[0,rectime], title='time [s]', xstyle=1, xticklen=-0.02;
+;XYOutS, (!X.Window[1] - !X.Window[0]) / 2 + !X.Window[0], 0.94, /Normal, $
+;    Alignment=0.5, 'time [s]', Charsize=1.3, color=fsc_color('black')
+
+;; plot delay axis
+OPD0=1.d6*double(midigetkeyword('OPD0',path+tag+'.groupdelay.fits',extna='IMAGING_DATA'))
+OPD1=1.d6*double(midigetkeyword('OPD1',path+tag+'.groupdelay.fits',extna='IMAGING_DATA'))
+OPD2=1.d6*double(midigetkeyword('OPD2',path+tag+'.groupdelay.fits',extna='IMAGING_DATA'))
+minopd=OPD0-OPD1
+maxopd=OPD0+OPD1
+cgaxis, yaxis=1, yrange=[minopd,maxopd], title='delay ['+micron+']', ystyle=1, yticklen=-0.02
+
+
+;;
+;; plot delay
+  base=tag
+  datatime = oirGetData(path+base+'.fringes.fits',col='time')
+   datatime = REFORM(datatime.time) ; time of each frame in mjd 
+   startTime= datatime[0]
+   dtime    = 86400.d0*(datatime-startTime) ; seconds from beginning
+
+   delay     = oirGetDelay(path+base+'.groupdelay.fits')
+   delaytime = REFORM(delay.time)&
+   delaytime = 86400.d0*(delaytime-startTime) ; seconds relative to datastart 
+   flagdata  = oirGetFlag(path+base+'.flag.fits')
+   nFlag     = N_ELEMENTS(flagdata)
+   flagdata.timerang = 86400.d0*(flagdata.timerang-startTime)
+
+   opd   = oirGetOpd(path+base+'.fringes.fits')
+   delay = REFORM(delay.delay)
+   delay = INTERPOL(delay, delaytime, dtime) ; delay at each frame
+   if (TOTAL(opd EQ 0.) GT 0 ) then $
+      delay(where(opd EQ 0.0)) = median(reform(delay)); bad points
+   if (KEYWORD_SET(twopass)) then begin
+      delay2 = oirgetdelay(path+base+'.powerdelay.fits')
+      delay2 = REFORM(delay2.delay)
+      if (TOTAL(opd EQ 0.) GT 0 ) then begin
+         delay2(where(opd EQ 0.0)) = median(delay2); bad points
+      endif
+   endif
+   if (TOTAL(opd EQ 0.) GT 0 ) then $
+      opd(where(opd EQ 0.0)) = median(opd)  ; bad points
+   ndelay = N_ELEMENTS(opd)
+   topd   = where(dtime gt 15.)
+   maxopd = max(opd)
+   minopd = min(opd[topd])
+   if (KEYWORD_SET(twopass)) then begin
+      maxopd = max(maxopd>delay2)
+      minopd = min(minopd<delay2[topd])
+   endif
+;   plot,dtime, opd,yrange=[minopd,maxopd]+200*[-1,1], $
+	;tscale=1./0.018d0
+	diff = abs(ts_diff(str.time ,1))
+	tscale = 1./(86400.d0*median(diff[0:n_elements(diff)-2]))	;last element of diff is 0
+	pxoffset=-40.d0/abs(OPD2)
+	;pxoffset=0
+
+   cgplot,tscale*dtime, pxoffset+1/abs(opd2) * (-(opd-opd0)+opd1), /overplot, color="blue"
+   if (KEYWORD_SET(twopass)) then begin
+      cgplot,tscale*dtime,pxoffset+1/abs(opd2)*(-(delay2-opd0)+opd1), color = "green", /overplot, thick=2
+   endif
+   cgplot,tscale*dtime,pxoffset+1/abs(opd2)*(-(delay-opd0)+opd1), color='yellow', /overplot
+   for i=0,nFlag-1 do cgplot, tscale*flagdata[i].timerang, 150*[1,1],col='red',thick=2,/overplot
+;   for i=0,nFlag-1 do oplot, flagdata[i].timerang, (yrange[0]+50)*[1,1],col=255,$
+;      thick=2
+
+device,/close
+set_plot,'x'
+
+spawn, 'gv '+resultpath+tag+'_OPD_Delay.ps'
+
+stop
+end

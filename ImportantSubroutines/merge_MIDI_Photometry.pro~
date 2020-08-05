@@ -1,0 +1,77 @@
+;merge two photometric observations
+
+pro merge_MIDI_Photometry
+
+;ASSUMES 2 seperate files only, i.e. _01.fits and _02.fits
+
+commnum = 'P92CHOQUET'
+path = '/media/disk_MIDIFSU/MIDI_FSUA/MIDI_FSUA_'+commnum+'/MIDIdata/Photometry/'
+
+
+phot1 = ['MIDI.2014-01-14T03:41:00', 'MIDI.2014-01-14T03:43:20']	;A & B
+phot2 = ['MIDI.2014-01-14T03:46:17', 'MIDI.2014-01-14T03:48:35']	;A & B, to be merged mit phot1
+
+file1A = file_search(path+phot1[0]+'*', count=nfiles1A)
+file1B = file_search(path+phot1[1]+'*', count=nfiles1B)
+file2A = file_search(path+phot2[0]+'*', count=nfiles2A)
+file2B = file_search(path+phot2[1]+'*', count=nfiles2B)
+
+;merge the data for 1st A photometry
+tmp1A1 = mrdfits(file1A[0], 9, hdr1A1, /silent)
+tmp1A2 = mrdfits(file1A[1], 9, hdr1A2, /silent)
+tmp1A = [tmp1A1,tmp1A2]
+;merge the data for 1st B photometry
+tmp1B1 = mrdfits(file1B[0], 9, hdr1B1, /silent)
+tmp1B2 = mrdfits(file1B[1], 9, hdr1B2, /silent)
+tmp1B = [tmp1B1,tmp1B2]
+
+;merge the data for 2nd A photometry
+tmp2A1 = mrdfits(file2A[0], 9, hdr2A1, /silent)
+tmp2A2 = mrdfits(file2A[1], 9, hdr2A2, /silent)
+tmp2A = [tmp1A1,tmp1A2]
+;merge the data for 2nd B photometry
+tmp2B1 = mrdfits(file2B[0], 9, hdr2B1, /silent)
+tmp2B2 = mrdfits(file2B[1], 9, hdr2B2, /silent)
+tmp2B = [tmp1B1,tmp1B2]
+
+newA = [tmp1A, tmp2A]
+newB = [tmp1B, tmp2B]
+
+;write out merged A photometry
+for i=0,9 do begin
+
+  st = mrdfits(file1A[0], i, hdr, /silent)
+
+  if (i ne 9) then begin
+
+    mwrfits, st, path+'testA.fits', hdr, /silent
+
+  endif else begin
+
+    mwrfits, newA, path+'testA.fits', hdr, /silent
+
+  endelse
+
+endfor
+
+
+;write out merged B photometry
+for i=0,9 do begin
+
+  st = mrdfits(file1B[0], i, hdr, /silent)
+
+  if (i ne 9) then begin
+
+    mwrfits, st, path+'testA.fits', hdr, /silent
+
+  endif else begin
+
+    mwrfits, newB, path+'testB.fits', hdr, /silent
+
+  endelse
+
+endfor
+
+
+stop
+end
